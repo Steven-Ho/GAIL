@@ -114,10 +114,10 @@ class ActorCritic(nn.Module):
 # linear_output: (batch_size, seq_len, context_dim)
 # avg_logits: (batch_size, context_dim)
 class Discriminator(nn.Module):
-    def __init__(self, input_dim, context_dim, activation=torch.softmax, output_activation=torch.softmax, hidden_dims=64):
+    def __init__(self, input_dim, activation=torch.softmax, output_activation=torch.softmax, hidden_dims=64):
         super(Discriminator, self).__init__()
 
-        self.policy = BLSTMPolicy(input_dim, hidden_dims, activation, output_activation, context_dim)
+        self.policy = BLSTMPolicy(input_dim, hidden_dims, activation, output_activation, 2)
 
     def forward(self, seq, gt=None):
         pred, loggt, logp = self.policy(seq, gt)

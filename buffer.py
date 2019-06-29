@@ -13,6 +13,7 @@ class Buffer(object):
         self.obs = np.zeros((self.max_s, obs_dim))
         self.act = np.zeros((self.max_s, act_dim))
         self.rew = np.zeros(self.max_s)
+        self.pos = np.zeros(self.max_s) # The possibity that dc make it wrong
         self.end = np.zeros(batch_size + 1) # The first will always be 0
 
         self.ptr = 0
@@ -46,7 +47,6 @@ class BufferS(Buffer):
         super(BufferS, self).__init__(obs_dim, act_dim, batch_size, ep_len, dc_interv, gamma, lam, N)
         self.ret = np.zeros(self.max_s)
         self.adv = np.zeros(self.max_s)
-        self.pos = np.zeros(self.max_s) # The possibity that dc make it right
         self.lgp = np.zeros(self.max_s)
         self.val = np.zeros(self.max_s)
         self.ent = np.zeros(self.max_s) # Entropy
@@ -97,3 +97,11 @@ class BufferT(Buffer):
         self.act[self.ptr] = act
         self.rew[self.ptr] = rew
         self.ptr += 1
+
+    def end_episode(self, pret_pos):
+        ep_slice = slice(int(self.end[self.eps]), self.ptr)
+        self.pos[ep_slice] = pret_pos
+
+        self.eps += 1
+        self.dc_eps += 1
+        self.end[self.eps] = self.ptr
