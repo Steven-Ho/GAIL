@@ -14,6 +14,8 @@ def gailt(env_fn, actor_critic=ActorCritic, ac_kwargs=dict(), disc=Discriminator
         epochs=500, gamma=0.99, lam=0.97, pi_lr=3e-4, vf_lr=1e-3, dc_lr=5e-4, train_v_iters=80, train_dc_iters=10, 
         train_dc_interv=10, max_ep_len=1000, logger_kwargs=dict(), save_freq=10):
 
+    l_lam = 0.5 # balance two loss term
+
     logger = EpochLogger(**logger_kwargs)
     logger.save_config(locals())
 
@@ -32,7 +34,7 @@ def gailt(env_fn, actor_critic=ActorCritic, ac_kwargs=dict(), disc=Discriminator
     disc = disc(input_dim=obs_dim[0], **dc_kwargs)
 
     # TODO: Load expert policy here
-    expert = None
+    expert = actor_critic(input_dim=obs_dim[0], **ac_kwargs)
 
     # Buffers
     local_episodes_per_epoch = int(episodes_per_epoch / num_procs())
@@ -53,7 +55,51 @@ def gailt(env_fn, actor_critic=ActorCritic, ac_kwargs=dict(), disc=Discriminator
     sync_all_params(disc.parameters())
 
     def update(e):
-        pass
+        obs, act, adv, pos, ret, lgp_old = [torch.Tensor(x) for x in BufferS.retrieve_all()]
+
+        # Policy
+        _, lgp, _ = actor_critic.policy(obs, act)
+        entropy = (-lgp).mean()
+
+        # Policy loss
+        # policy gradient term + entropy term
+        pi_loss = -(lgp*adv).mean() - l_lam*entropy
+        
+        # Train policy
+        train_pi.zero_grad()
+        pi_loss.backward()
+        average_gradients(train_pi.param_groups)
+        train_pi.step()
+
+        # Value function
+        v = actor_critic.value_f(obs)
+        v_l_old = F.mse_loss(v, ret)
+        for _ in range(train_v_iters):
+            v = actor_critic.value_f(obs)
+            v_loss = F.mse_loss(v, ret)
+
+            # Value function train
+            train_v.zero_grad()
+            v_loss.backward()
+            average_gradients(train_v.param_groups)
+            train_v.step()
+
+        # Discriminator
+        s_t = buff_s.retrieve_dc_buff() # trajectories of students
+        t_t = buff_t.retrieve_dc_buff()
+        _, lgp_s, _ = disc(s_t, gt=torch.ones(local_episodes_per_epoch * train_dc_interv, dtype=int))
+        _, lgp_t, _ = disc(t_t, gt=torch.zeros(local_episodes_per_epoch * train_dc_interv, dtype=int))
+        dc_loss_old = -lgp_s.mean() - lgp_t.mean()
+        for _ in range(train_dc_iters):
+            _, lgp_s, _ = disc(s_t, gt=torch.ones(local_episodes_per_epoch * train_dc_interv, dtype=int))
+            _, lgp_t, _ = disc(t_t, gt=torch.zeros(local_episodes_per_epoch * train_dc_interv, dtype=int))
+            dc_loss = -lgp_s.mean() - lgp_t.mean()
+
+            # Discriminator train
+            train_dc.zero_grad()
+            dc_loss.backward()
+            average_gradients(train_dc.param_groups)
+            train_dc.step()
 
     start_time = time.time()
     o, r, d, ep_ret, ep_len = env.reset(), 0, False, 0, 0
@@ -63,6 +109,7 @@ def gailt(env_fn, actor_critic=ActorCritic, ac_kwargs=dict(), disc=Discriminator
     for epoch in range(epochs):
         actor_critic.eval()
         disc.eval()
+        # We recognize the probability term of index [0] correspond to the teacher's policy
         # Student's policy rollout
         for _ in range(local_episodes_per_epoch):            
             for _ in range(max_ep_len):
@@ -80,7 +127,7 @@ def gailt(env_fn, actor_critic=ActorCritic, ac_kwargs=dict(), disc=Discriminator
                 terminal = d or (ep_len == max_ep_len)
                 if terminal:
                     dc_diff = torch.Tensor(buff_s.calc_diff()).unsqueeze(0)
-                    _, logp, _ = disc(dc_diff, gt=torch.Tensor([0])) # Return the log p of misclassification
+                    _, logp, _ = disc(dc_diff, gt=torch.Tensor([0])) 
                     buff_s.end_episode(logp.detach().numpy())
                     logger.store(EpRet=ep_ret, EpLen=ep_len)
                     o, r, d, ep_ret, ep_len = env.reset(), 0, False, 0, 0
@@ -89,7 +136,7 @@ def gailt(env_fn, actor_critic=ActorCritic, ac_kwargs=dict(), disc=Discriminator
         for _ in range(local_episodes_per_epoch):            
             for _ in range(max_ep_len):
                 obs = torch.Tensor(o.reshape(1, -1))
-                a = expert(obs)
+                a, _, _, _ = expert(obs)
 
                 buff_t.store(o, a.detach().numpy(), r)
 
@@ -101,7 +148,7 @@ def gailt(env_fn, actor_critic=ActorCritic, ac_kwargs=dict(), disc=Discriminator
                 terminal = d or (ep_len == max_ep_len)
                 if terminal:
                     dc_diff = torch.Tensor(buff_s.calc_diff()).unsqueeze(0)
-                    _, logp, _ = disc(dc_diff, gt=torch.Tensor([0])) # Return the log p of misclassification
+                    _, logp, _ = disc(dc_diff, gt=torch.Tensor([1])) 
                     buff_s.end_episode(logp.detach().numpy())
                     logger.store(EpRet=ep_ret, EpLen=ep_len)
                     o, r, d, ep_ret, ep_len = env.reset(), 0, False, 0, 0
