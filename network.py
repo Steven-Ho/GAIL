@@ -30,6 +30,25 @@ class MLP(nn.Module):
             x = self.output_activation(self.layers[-1](x))
         return x.squeeze() if self.output_squeeze else x
 
+class BiclassificationPolicy(nn.Module):
+    def __init__(self, input_dim, hidden_dims, activation, output_activation):
+        super(BiclassificationPolicy, self).__init__()
+
+        self.output_dim = 2
+        self.logits = MLP(layers=[input_dim] + list(hidden_dims) + [self.output_dim], activation=activation)
+
+    def forward(self, x, label=None):
+        logits = self.logits(x)
+        policy = Categorical(logits=logits)
+        l = policy.sample()
+        logp_l = policy.log_prob(l).squeeze()
+        if label is not None:
+            logp = policy.log_prob(label).squeeze()
+        else:
+            logp = None
+
+        return l, logp, logp_l
+
 class GaussianPolicy(nn.Module):
     def __init__(self, input_dim, hidden_dims, activation, output_activation, action_dim):
         super(GaussianPolicy, self).__init__()
@@ -66,27 +85,6 @@ class CategoricalPolicy(nn.Module):
 
         return pi, logp, logp_pi
 
-class BLSTMPolicy(nn.Module):
-    def __init__(self, input_dim, hidden_dims, activation, output_activation, con_dim):
-        super(BLSTMPolicy, self).__init__()
-        self.lstm = nn.LSTM(input_size=input_dim, hidden_size=hidden_dims//2, batch_first=True, bidirectional=True)
-        self.linear = nn.Linear(hidden_dims, con_dim)
-        nn.init.zeros_(self.linear.bias)
-
-    def forward(self, seq, gt=None):
-        inter_states, _ = self.lstm(seq)
-        logit_seq = self.linear(inter_states)
-        self.logits = torch.mean(logit_seq, dim=1)
-        policy = Categorical(logits=self.logits)
-        label = policy.sample()
-        logp = policy.log_prob(label).squeeze()
-        if gt is not None:
-            loggt = policy.log_prob(gt).squeeze()
-        else:
-            loggt = None
-
-        return label, loggt, logp
-
 class ActorCritic(nn.Module):
     def __init__(self, input_dim, action_space, hidden_dims=(64, 64), activation=torch.tanh, output_activation=None, policy=None):
         super(ActorCritic, self).__init__()
@@ -103,25 +101,19 @@ class ActorCritic(nn.Module):
 
     def forward(self, x, a=None):
         pi, logp, logp_pi = self.policy(x, a)
-        v= self.value_f(x)
+        v = self.value_f(x)
 
         return pi, logp, logp_pi, v
 
-# Bidirectional LSTM for encoding trajectories
-# Batch-first used
-# input: (batch_size, seq_len, input_dim)
-# inter_state: (batch_size, seq_len, 2*hidden_dims)
-# linear_output: (batch_size, seq_len, context_dim)
-# avg_logits: (batch_size, context_dim)
 class Discriminator(nn.Module):
-    def __init__(self, input_dim, activation=torch.softmax, output_activation=torch.softmax, hidden_dims=64):
+    def __init__(self, input_dim, hidden_dims, activation=torch.softmax, output_activation=torch.softmax):
         super(Discriminator, self).__init__()
 
-        self.policy = BLSTMPolicy(input_dim, hidden_dims, activation, output_activation, 2)
+        self.policy = BiclassificationPolicy(input_dim, hidden_dims, activation, output_activation)
 
-    def forward(self, seq, gt=None):
-        pred, loggt, logp = self.policy(seq, gt)
-        return pred, loggt, logp
+    def forward(self, state, gt=None):
+        label, loggt, logp = self.policy(state, gt)
+        return label, loggt, logp
 
 def count_vars(module):
     return sum(p.numel() for p in module.parameters() if p.requires_grad)

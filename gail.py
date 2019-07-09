@@ -10,7 +10,7 @@ from utils.mpi_tools import mpi_fork, proc_id, mpi_statistics_scalar, num_procs
 from utils.mpi_torch import average_gradients, sync_all_params
 from utils.logx import EpochLogger
 
-def gailt(env_fn, actor_critic=ActorCritic, ac_kwargs=dict(), disc=Discriminator, dc_kwargs=dict(), seed=0, episodes_per_epoch=40,
+def gail(env_fn, actor_critic=ActorCritic, ac_kwargs=dict(), disc=Discriminator, dc_kwargs=dict(), seed=0, episodes_per_epoch=40,
         epochs=500, gamma=0.99, lam=0.97, pi_lr=3e-5, vf_lr=1e-3, dc_lr=5e-4, train_v_iters=80, train_dc_iters=20, 
         train_dc_interv=5, max_ep_len=1000, logger_kwargs=dict(), save_freq=10):
 
@@ -224,6 +224,6 @@ if __name__ == '__main__':
     from utils.run_utils import setup_logger_kwargs
     logger_kwargs = setup_logger_kwargs(args.exp_name, args.seed)
 
-    gailt(lambda: gym.make(args.env), actor_critic=ActorCritic, ac_kwargs=dict(hidden_dims=[args.hid]*args.l),
+    gail(lambda: gym.make(args.env), actor_critic=ActorCritic, ac_kwargs=dict(hidden_dims=[args.hid]*args.l),
         disc=Discriminator, dc_kwargs=dict(hidden_dims=args.hid), gamma=args.gamma, lam=args.lam, seed=args.seed,
         episodes_per_epoch=args.episodes_per_epoch, epochs=args.epochs, logger_kwargs=logger_kwargs)
