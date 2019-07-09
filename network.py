@@ -106,7 +106,7 @@ class ActorCritic(nn.Module):
         return pi, logp, logp_pi, v
 
 class Discriminator(nn.Module):
-    def __init__(self, input_dim, hidden_dims, activation=torch.softmax, output_activation=torch.softmax):
+    def __init__(self, input_dim, hidden_dims, activation=torch.relu, output_activation=torch.softmax):
         super(Discriminator, self).__init__()
 
         self.policy = BiclassificationPolicy(input_dim, hidden_dims, activation, output_activation)
