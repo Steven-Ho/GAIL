@@ -11,10 +11,10 @@ from utils.mpi_torch import average_gradients, sync_all_params
 from utils.logx import EpochLogger
 
 def gailt(env_fn, actor_critic=ActorCritic, ac_kwargs=dict(), disc=Discriminator, dc_kwargs=dict(), seed=0, episodes_per_epoch=40,
-        epochs=500, gamma=0.99, lam=0.97, pi_lr=3e-4, vf_lr=1e-3, dc_lr=5e-4, train_v_iters=80, train_dc_iters=10, 
-        train_dc_interv=10, max_ep_len=1000, logger_kwargs=dict(), save_freq=10):
+        epochs=500, gamma=0.99, lam=0.97, pi_lr=3e-5, vf_lr=1e-3, dc_lr=5e-4, train_v_iters=80, train_dc_iters=20, 
+        train_dc_interv=5, max_ep_len=1000, logger_kwargs=dict(), save_freq=10):
 
-    l_lam = 0.5 # balance two loss term
+    l_lam = 0 # balance two loss term
 
     logger = EpochLogger(**logger_kwargs)
     logger.save_config(locals())
@@ -64,7 +64,8 @@ def gailt(env_fn, actor_critic=ActorCritic, ac_kwargs=dict(), disc=Discriminator
 
         # Policy loss
         # policy gradient term + entropy term
-        pi_loss = -(lgp*adv).mean() - l_lam*entropy
+        print(lgp.mean(), pos.mean())
+        pi_loss = -(lgp*pos).mean() - l_lam*entropy
         
         # Train policy
         train_pi.zero_grad()
@@ -87,14 +88,16 @@ def gailt(env_fn, actor_critic=ActorCritic, ac_kwargs=dict(), disc=Discriminator
 
         # Discriminator
         if (e+1) % train_dc_interv == 0:
-            s_t = buff_s.retrieve_dc_buff() # trajectories of students
-            t_t = buff_t.retrieve_dc_buff()
-            _, lgp_s, _ = disc(s_t, gt=torch.ones(local_episodes_per_epoch * train_dc_interv, dtype=int))
-            _, lgp_t, _ = disc(t_t, gt=torch.zeros(local_episodes_per_epoch * train_dc_interv, dtype=int))
+            s_t = torch.Tensor(buff_s.retrieve_dc_buff()) # trajectories of students
+            t_t = torch.Tensor(buff_t.retrieve_dc_buff())
+            gt1 = torch.ones(local_episodes_per_epoch * train_dc_interv, dtype=torch.int)
+            gt2 = torch.zeros(local_episodes_per_epoch * train_dc_interv, dtype=torch.int)
+            _, lgp_s, _ = disc(s_t, gt=gt1)
+            _, lgp_t, _ = disc(t_t, gt=gt2)
             dc_loss_old = -lgp_s.mean() - lgp_t.mean()
             for _ in range(train_dc_iters):
-                _, lgp_s, _ = disc(s_t, gt=torch.ones(local_episodes_per_epoch * train_dc_interv, dtype=int))
-                _, lgp_t, _ = disc(t_t, gt=torch.zeros(local_episodes_per_epoch * train_dc_interv, dtype=int))
+                _, lgp_s, _ = disc(s_t, gt=gt1)
+                _, lgp_t, _ = disc(t_t, gt=gt2)
                 dc_loss = -lgp_s.mean() - lgp_t.mean()
 
                 # Discriminator train
@@ -103,8 +106,8 @@ def gailt(env_fn, actor_critic=ActorCritic, ac_kwargs=dict(), disc=Discriminator
                 average_gradients(train_dc.param_groups)
                 train_dc.step()
 
-            _, lgp_s, _ = disc(s_t, gt=torch.ones(local_episodes_per_epoch * train_dc_interv, dtype=int))
-            _, lgp_t, _ = disc(t_t, gt=torch.zeros(local_episodes_per_epoch * train_dc_interv, dtype=int))
+            _, lgp_s, _ = disc(s_t, gt=gt1)
+            _, lgp_t, _ = disc(t_t, gt=gt2)
             dc_loss_new = -lgp_s.mean() - lgp_t.mean()
         else:
             dc_loss_old = 0
@@ -116,9 +119,10 @@ def gailt(env_fn, actor_critic=ActorCritic, ac_kwargs=dict(), disc=Discriminator
         pi_loss_new = -(lgp*adv).mean() - l_lam*entropy
         v_loss_new = F.mse_loss(v, ret)
         kl = (lgp_old - lgp).mean()
+        intrinsic_ret = pos.mean()
         logger.store(LossPi=pi_loss, LossV=v_l_old, LossDC=dc_loss_old, DeltaLossPi=(pi_loss_new-pi_loss),
             DeltaLossV=(v_loss_new-v_l_old), DeltaLossDC=(dc_loss_new-dc_loss_old), DeltaEnt=(entropy_new-entropy),
-            Entropy=entropy, KL=kl)
+            Entropy=entropy, KL=kl, TrueRet=intrinsic_ret)
 
     start_time = time.time()
     o, r, d, ep_ret, ep_len = env.reset(), 0, False, 0, 0

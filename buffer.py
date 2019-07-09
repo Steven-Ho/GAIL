@@ -80,9 +80,9 @@ class BufferS(Buffer):
         occup_slice = slice(0, self.ptr)
         self.ptr = 0
         self.eps = 0
-        adv_mean, adv_std = mpi_statistics_scalar(self.adv[occup_slice])
+        # adv_mean, adv_std = mpi_statistics_scalar(self.adv[occup_slice])
         pos_mean, pos_std = mpi_statistics_scalar(self.pos[occup_slice])
-        self.adv[occup_slice] = (self.adv[occup_slice] - adv_mean) / adv_std
+        # self.adv[occup_slice] = (self.adv[occup_slice] - adv_mean) / adv_std
         self.pos[occup_slice] = (self.pos[occup_slice] - pos_mean) / pos_std
         return [self.obs[occup_slice], self.act[occup_slice], self.adv[occup_slice], self.pos[occup_slice],
             self.ret[occup_slice], self.lgp[occup_slice]]
