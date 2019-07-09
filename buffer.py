@@ -33,9 +33,9 @@ class Buffer(object):
         for i in range(self.N-1):
             prev = int(i*ep_l/(self.N-1))
             succ = int((i+1)*ep_l/(self.N-1))
-            self.dc_buff[self.eps, i] = self.obs[start + succ][:self.obs_dim] - self.obs[start + prev][:self.obs_dim]
+            self.dc_buff[self.dc_eps, i] = self.obs[start + succ][:self.obs_dim] - self.obs[start + prev][:self.obs_dim]
 
-        return self.dc_buff[self.eps]
+        return self.dc_buff[self.dc_eps]
 
     def retrieve_dc_buff(self):
         assert self.dc_eps == self.max_batch * self.dc_interv
@@ -105,3 +105,7 @@ class BufferT(Buffer):
         self.eps += 1
         self.dc_eps += 1
         self.end[self.eps] = self.ptr
+
+    def retrieve_all(self):
+        self.ptr = 0
+        self.eps = 0
