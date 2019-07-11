@@ -161,9 +161,10 @@ class Logger:
             for m in models:
                 self._torch_save(m, itr)
 
-    def _torch_save(self, model, itr=None):
+    def _torch_save(self, model, itr=None, fname=None):
         if proc_id()==0:
-            fname = model.__class__.__name__ + '_torch_save.pt' if itr is None else 'torch_save%d.pt'%itr
+            if fname is None:
+                fname = model.__class__.__name__ + '_torch_save.pt' if itr is None else 'torch_save%d.pt'%itr
             torch.save(model, osp.join(self.output_dir, fname))
 
     def dump_tabular(self):

@@ -53,6 +53,7 @@ class GaussianPolicy(nn.Module):
     def __init__(self, input_dim, hidden_dims, activation, output_activation, action_dim):
         super(GaussianPolicy, self).__init__()
 
+        print("Guassian policy used.")
         self.mu = MLP(layers=[input_dim] + list(hidden_dims) + [action_dim], activation=activation, output_activation=output_activation)
         self.log_std = nn.Parameter(-0.5 * torch.ones(action_dim))
 
@@ -71,6 +72,7 @@ class CategoricalPolicy(nn.Module):
     def __init__(self, input_dim, hidden_dims, activation, output_activation, action_dim):
         super(CategoricalPolicy, self).__init__()
 
+        print("Categorical policy used.")
         self.logits = MLP(layers=[input_dim] + list(hidden_dims) + [action_dim], activation=activation)
 
     def forward(self, x, a=None):
@@ -106,7 +108,7 @@ class ActorCritic(nn.Module):
         return pi, logp, logp_pi, v
 
 class Discriminator(nn.Module):
-    def __init__(self, input_dim, hidden_dims, activation=torch.relu, output_activation=torch.softmax):
+    def __init__(self, input_dim, hidden_dims=(64, 64), activation=torch.relu, output_activation=torch.softmax):
         super(Discriminator, self).__init__()
 
         self.policy = BiclassificationPolicy(input_dim, hidden_dims, activation, output_activation)
