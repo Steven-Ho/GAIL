@@ -4,6 +4,7 @@ import torch
 import torch.nn.functional as F 
 import gym
 import time
+import os.path as osp
 from network import Discriminator, ActorCritic, count_vars
 from buffer import BufferS, BufferT, BufferA
 from utils.mpi_tools import mpi_fork, proc_id, mpi_statistics_scalar, num_procs
@@ -133,7 +134,7 @@ def policyg(env_fn, actor_critic=ActorCritic, ac_kwargs=dict(), seed=0, episodes
         logger.dump_tabular()        
 
 def gail(env_fn, actor_critic=ActorCritic, ac_kwargs=dict(), disc=Discriminator, dc_kwargs=dict(), seed=0, episodes_per_epoch=40,
-        epochs=500, gamma=0.99, lam=0.97, pi_lr=3e-5, vf_lr=1e-3, dc_lr=5e-4, train_v_iters=80, train_dc_iters=80, 
+        epochs=500, gamma=0.99, lam=0.97, pi_lr=3e-3, vf_lr=3e-3, dc_lr=5e-4, train_v_iters=80, train_dc_iters=80, 
         max_ep_len=1000, logger_kwargs=dict(), save_freq=10):
 
     l_lam = 0 # balance two loss term
@@ -157,6 +158,8 @@ def gail(env_fn, actor_critic=ActorCritic, ac_kwargs=dict(), disc=Discriminator,
 
     # TODO: Load expert policy here
     expert = actor_critic(input_dim=obs_dim[0], **ac_kwargs)
+    expert_name = "expert_torch_save.pt"
+    expert = torch.load(osp.join(logger_kwargs['output_dir'], expert_name))
 
     # Buffers
     local_episodes_per_epoch = int(episodes_per_epoch / num_procs())
@@ -189,10 +192,11 @@ def gail(env_fn, actor_critic=ActorCritic, ac_kwargs=dict(), disc=Discriminator,
         pi_loss = -(lgp * adv).mean() - l_lam*entropy
         
         # Train policy
-        # train_pi.zero_grad()
-        # pi_loss.backward()
-        # average_gradients(train_pi.param_groups)
-        # train_pi.step()
+        if e > 10:
+            train_pi.zero_grad()
+            pi_loss.backward()
+            average_gradients(train_pi.param_groups)
+            train_pi.step()
 
         # Value function
         v = ac.value_f(obs_s)
@@ -258,6 +262,8 @@ def gail(env_fn, actor_critic=ActorCritic, ac_kwargs=dict(), disc=Discriminator,
 
                 o, r, d, _ = env.step(a.detach().numpy()[0])
                 _, sdr, _ = disc(torch.Tensor(o.reshape(1, -1)), gt=torch.Tensor([0]))
+                if sdr < -4: # Truncate rewards
+                    sdr = -4
                 ep_ret += r
                 ep_sdr += sdr
                 ep_len += 1
@@ -339,10 +345,10 @@ if __name__ == '__main__':
     from utils.run_utils import setup_logger_kwargs
     logger_kwargs = setup_logger_kwargs(args.exp_name, args.seed)
 
-    policyg(lambda: gym.make(args.env), actor_critic=ActorCritic, ac_kwargs=dict(hidden_dims=[args.hid]*args.l),
-        gamma=args.gamma, lam=args.lam, seed=args.seed, episodes_per_epoch=args.episodes_per_epoch, 
-        epochs=args.epochs, logger_kwargs=logger_kwargs)
+    # policyg(lambda: gym.make(args.env), actor_critic=ActorCritic, ac_kwargs=dict(hidden_dims=[args.hid]*args.l),
+    #     gamma=args.gamma, lam=args.lam, seed=args.seed, episodes_per_epoch=args.episodes_per_epoch, 
+    #     epochs=args.epochs, logger_kwargs=logger_kwargs)
 
-    # gail(lambda: gym.make(args.env), actor_critic=ActorCritic, ac_kwargs=dict(hidden_dims=[args.hid]*args.l),
-    #     disc=Discriminator, dc_kwargs=dict(hidden_dims=[args.hid]*args.l), gamma=args.gamma, lam=args.lam, 
-    #     seed=args.seed, episodes_per_epoch=args.episodes_per_epoch, epochs=args.epochs, logger_kwargs=logger_kwargs)
+    gail(lambda: gym.make(args.env), actor_critic=ActorCritic, ac_kwargs=dict(hidden_dims=[args.hid]*args.l),
+        disc=Discriminator, dc_kwargs=dict(hidden_dims=[args.hid]*args.l), gamma=args.gamma, lam=args.lam, 
+        seed=args.seed, episodes_per_epoch=args.episodes_per_epoch, epochs=args.epochs, logger_kwargs=logger_kwargs)
